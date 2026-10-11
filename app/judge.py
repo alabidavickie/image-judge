@@ -134,6 +134,20 @@ def anthropic_blocks(content: list) -> list[dict]:
     return [{"type": "text", "text": c} if isinstance(c, str) else c.content_block() for c in content]
 
 
+NO_CREDIT_WORDS = ("quota", "balance", "insufficient", "credit", "exhausted", "billing", "额度", "余额")
+
+
+def no_credit_message(exc) -> Optional[str]:
+    """If the provider is saying the key has run out of credit (not just 'slow down'), a plain-words message."""
+    status = getattr(exc, "status_code", None)
+    text = f"{exc} {getattr(exc, 'body', '')}".lower()
+    if status in (402, 403, 429) and any(w in text for w in NO_CREDIT_WORDS):
+        return ("The AI provider says this API key has no credit or quota left "
+                f"({str(getattr(exc, 'body', '') or exc)[:120]}). Add credit with your provider, or put a "
+                "different key in ANTHROPIC_API_KEY. Waiting will not fix this.")
+    return None
+
+
 class AnthropicJudge(JsonJudge):
     def __init__(self, client: Optional[anthropic.AsyncAnthropic] = None,
                  custom_gateway: Optional[bool] = None):
@@ -163,6 +177,8 @@ class AnthropicJudge(JsonJudge):
                 async with messages_api.stream(**kwargs) as stream:
                     return await stream.get_final_message()
             except anthropic.RateLimitError as exc:
+                if (message := no_credit_message(exc)):
+                    raise JudgeError(message, fatal=True) from exc  # a used-up balance never recovers by waiting
                 if attempt == len(waits):
                     raise
                 await asyncio.sleep(self._retry_after(exc) or waits[attempt])
@@ -209,6 +225,8 @@ class AnthropicJudge(JsonJudge):
         except anthropic.RateLimitError as exc:
             raise JudgeError("Rate limited after retries; lower IMAGE_JUDGE_MAX_CONCURRENCY or try later.") from exc
         except anthropic.APIStatusError as exc:
+            if (message := no_credit_message(exc)):
+                raise JudgeError(message, fatal=True) from exc
             raise JudgeError(f"API error {exc.status_code}: {exc.message}") from exc
         except anthropic.APIConnectionError as exc:
             raise JudgeError(f"Could not reach the Anthropic API: {exc}") from exc

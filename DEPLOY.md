@@ -172,6 +172,7 @@ Then send the labellers: the address, their email and password, and one line: **
 | Sign in page says "Wrong email or password" | The user does not exist in Supabase Authentication, or the password is wrong. |
 | Login says the service is not available | `SUPABASE_URL` or `SUPABASE_ANON_KEY` is wrong in Railway. |
 | Pages load but images are broken | R2 variables are wrong, or the bucket name differs. Check the Railway logs for "Cloudflare R2: ... failed". |
+| "The AI provider says this API key has no credit or quota left" | The mwapi balance is used up. Add credit with the provider (or put a different key in `ANTHROPIC_API_KEY` in Railway). Waiting and settings changes do not help. |
 | "Anthropic API key missing or invalid" | Wrong key, or `ANTHROPIC_BASE_URL` not set to `https://api.mwapi.dev`. |
 | Evaluate works locally but errors online | The online app can only use API models; `claude-code:` and `codex:` models need your own PC. |
 | Everything is slow right after a quiet period | The first request wakes the server and the database; wait a minute. |

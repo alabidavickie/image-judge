@@ -199,3 +199,38 @@ def test_it_gives_up_after_the_last_wait(sleeps):
     with pytest.raises(JudgeError, match="Rate limited"):
         asyncio.run(AnthropicJudge(client).judge_once(task(), CFG, False, []))
     assert client.calls == 4 and sleeps == [10.0, 20.0, 40.0]  # 1 try + 3 waits
+
+
+# --- a used-up balance is not a rate limit: stop at once and say so -------------------------------
+class QuotaClient(RateLimitedClient):
+    def _stream(self, **kwargs):
+        self.calls += 1
+        response = httpx.Response(429, request=httpx.Request("POST", "https://api.example/v1/messages"))
+        err = anthropic.RateLimitError(
+            "Error code: 429 - {'code': 'API_KEY_QUOTA_EXHAUSTED', 'message': 'API key 额度已用完'}",
+            response=response, body={"code": "API_KEY_QUOTA_EXHAUSTED", "message": "API key 额度已用完"})
+
+        class Refused(FakeStream):
+            async def __aenter__(self):
+                raise err
+        return Refused(None)
+
+
+def test_an_empty_balance_fails_at_once_with_a_clear_message(sleeps):
+    client = QuotaClient(limited=0)
+    with pytest.raises(JudgeError) as caught:
+        asyncio.run(AnthropicJudge(client).judge_once(task(), CFG, False, []))
+    assert caught.value.fatal is True
+    assert "no credit or quota left" in str(caught.value) and "different key" in str(caught.value)
+    assert client.calls == 1 and sleeps == []  # no waiting, no retrying
+
+
+def test_an_empty_balance_stops_the_other_checks_too(sleeps):
+    result = asyncio.run(evaluate(task(), CFG, AnthropicJudge(QuotaClient(limited=0))))
+    assert result["aggregate"]["status"] == "error" and "no credit or quota left" in result["aggregate"]["explanation"]
+    assert result.get("fatal")
+
+
+def test_ordinary_rate_limits_are_still_waited_out(sleeps):
+    assert asyncio.run(AnthropicJudge(RateLimitedClient(limited=1)).judge_once(task(), CFG, False, []))
+    assert sleeps == [10.0]
