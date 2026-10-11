@@ -105,3 +105,24 @@ def test_end_to_end_pipeline():
     result = asyncio.run(evaluate(task(), CFG, judge(run)))
     assert result["aggregate"]["status"] == "confident" and result["aggregate"]["verdict"] == "B"
     assert len(run.calls) == 2
+
+
+def test_exact_gpt_model_uses_gateway_key_without_account_config(monkeypatch, tmp_path):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://agentrouter.org")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-secret")
+    assert provider_of("gpt-6-astra") == "codex"
+    assert cli_model("gpt-6-astra") == "gpt-6-astra"
+    cmd = build_command("codex", CFG.with_overrides(model="gpt-6-astra"),
+                        tmp_path / "s", tmp_path / "o", [], tmp_path)
+    assert cmd[cmd.index("--model") + 1] == "gpt-6-astra"
+    assert 'model_providers.judge_gateway.env_key="ANTHROPIC_API_KEY"' in cmd
+    assert 'model_providers.judge_gateway.base_url="https://agentrouter.org/v1"' in cmd
+    assert "test-secret" not in " ".join(cmd)
+
+
+def test_provider_quota_error_is_not_hidden_by_local_warning():
+    stdout = json.dumps({"type": "turn.failed", "error": {"message": "402 Payment Required: Budget pool quota exhausted"}})
+    run = FakeRun(stderr="PowerShell snapshot warning", stdout=stdout, returncode=1)
+    with pytest.raises(JudgeError, match="Budget pool quota") as err:
+        asyncio.run(judge(run).judge_once(task(), CFG, False, []))
+    assert err.value.fatal

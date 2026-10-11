@@ -198,3 +198,20 @@ A configured key is not proof of working provider service. During integration te
 Claude Code client repeatedly received **HTTP 503** from Agent Router. Until its model route is available,
 the judge cannot produce a result. Its timeout message includes that provider status.
 If this persists, contact Agent Router support to enable the model/key for this use or use another provider.
+
+### GPT-6 Astra and Claude Opus 4.8
+
+Both `gpt-6-astra` and `claude-opus-4-8` are selectable on the Judge page and offered in
+Train & Test's model field. Active guidelines and learned lessons are shared by both models.
+The exact model used is saved with each result; changing models does not erase training history.
+With Agent Router configured, GPT uses the included Codex client and `/v1/responses`, while
+Opus uses the included Claude Code client. Both use `ANTHROPIC_API_KEY`, without changing
+any user's Codex or Claude account settings. Set `IMAGE_JUDGE_MODEL` to either name to change
+the default. The newer Codex client requires Responses, so the old `wire_api="chat"` example
+in Agent Router's guide is not used.
+
+During testing both requested models returned **402 Payment Required: Budget pool quota has
+been exhausted**. An Agent Router administrator must increase the budget or select a funded
+pool before evaluations or new training can run. A different model does not resolve a shared
+pool's exhausted budget. This app's training stores reusable lessons, rather than fine-tuning
+the base models; test those lessons on held-out tasks to measure actual accuracy.

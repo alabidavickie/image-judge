@@ -312,7 +312,8 @@ def _run_from(i: int, swapped: bool, out: dict, cached: bool = False) -> RunResu
                      usage=out.get("usage"), model=out.get("model"))
 
 
-async def evaluate(task: Task, config: JudgeConfig, judge: Judge, db=None, use_cache: bool = True) -> dict:
+async def evaluate(task: Task, config: JudgeConfig, judge: Judge, db=None, use_cache: bool = True,
+                   deadline_s: Optional[float] = None) -> dict:
     """Run `config.runs` independent judgments (half with A/B order swapped) and aggregate."""
     if near_identical(task.a, task.b):
         runs: list[RunResult] = []
@@ -331,8 +332,19 @@ async def evaluate(task: Task, config: JudgeConfig, judge: Judge, db=None, use_c
                              "the image area (see its difference map).")
         task.difference_maps = maps
     fatal = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    overall = loop.time() + deadline_s if deadline_s else None  # when the whole evaluation must be answered by
+    out_of_time = f"Did not finish within the {deadline_s:.0f}s time limit." if deadline_s else ""
 
     async def one(i: int) -> RunResult:
+        if overall is None:
+            return await one_run(i)
+        try:
+            return await asyncio.wait_for(one_run(i), timeout=max(0.05, overall - loop.time()))
+        except asyncio.TimeoutError:
+            return RunResult(i, i % 2 == 1, error=out_of_time)
+
+    async def one_run(i: int) -> RunResult:
         swapped = i % 2 == 1
         key = cache_key(task, config, i)
         if use_cache and db is not None and (hit := db.cache_get(key)):
@@ -373,7 +385,10 @@ async def evaluate(task: Task, config: JudgeConfig, judge: Judge, db=None, use_c
         return _run_from(i, swapped, out)
 
     runs = list(await asyncio.gather(*(one(i) for i in range(config.runs))))
-    agg = aggregate(runs, planned=config.runs)
+    timed_out = bool(out_of_time) and any(r.error == out_of_time for r in runs)
+    agg = aggregate(runs, planned=config.runs, allow_partial=timed_out)
+    if timed_out and agg.status == "review":
+        agg.explanation += " The time limit was reached before every check finished."
     result = {
         "aggregate": agg.to_dict(),
         "runs": [r.to_dict() for r in runs],

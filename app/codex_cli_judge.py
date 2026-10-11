@@ -17,14 +17,14 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from .config import JudgeConfig, settings
+from .config import JudgeConfig, settings, uses_agentrouter
 from .judge import JsonJudge, JudgeError
 
 
 def cli_model(model: str) -> Optional[str]:
     """Convert codex:gpt-6-astra to gpt-6-astra; codex uses the CLI default."""
     _, separator, name = model.partition(":")
-    return name if separator and name else None
+    return name if separator and name else (model if model.startswith("gpt-") else None)
 
 
 def find_codex_binary() -> Optional[str]:
@@ -47,6 +47,20 @@ def build_command(binary: str, config: JudgeConfig, schema_path: Path, output_pa
         "--json",
         "-c", f'model_reasoning_effort="{config.effort}"',
     ]
+    if uses_agentrouter():
+        base = os.environ["ANTHROPIC_BASE_URL"].rstrip("/")
+        if not base.endswith("/v1"):
+            base += "/v1"
+        for override in (
+            'model_provider="judge_gateway"',
+            'model_providers.judge_gateway.name="Agent Router"',
+            f'model_providers.judge_gateway.base_url={json.dumps(base)}',
+            'model_providers.judge_gateway.env_key="ANTHROPIC_API_KEY"',
+            'model_providers.judge_gateway.wire_api="responses"',
+            'model_providers.judge_gateway.request_max_retries=0',
+            'model_providers.judge_gateway.stream_max_retries=0',
+        ):
+            cmd += ["-c", override]
     if model := cli_model(config.model):
         cmd += ["--model", model]
     for path in image_paths:
@@ -142,11 +156,24 @@ class CodexCliJudge(JsonJudge):
             raise JudgeError(f"Could not start Codex ({binary}): {exc}", fatal=True) from exc
 
         if proc.returncode != 0 or not raw.strip():
-            detail = (proc.stderr or proc.stdout or "no output").strip()[:500]
+            detail = ""
+            for line in (proc.stdout or "").splitlines():
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("type") == "error":
+                    detail = event.get("message") or detail
+                elif event.get("type") == "turn.failed":
+                    detail = (event.get("error") or {}).get("message") or detail
+            detail = str(detail or proc.stderr or proc.stdout or "no output").strip()[:500]
+            for key_name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"):
+                if key := os.environ.get(key_name):
+                    detail = detail.replace(key, "[redacted]")
             lower = detail.lower()
             fatal = any(token in lower for token in (
                 "not logged in", "login", "authentication", "unauthorized", "invalid model",
-                "model not found", "usage limit", "rate limit",
+                "model not found", "usage limit", "rate limit", "quota", "payment required",
             ))
             raise JudgeError(f"Codex failed (exit {proc.returncode}): {detail}", fatal=fatal)
         try:

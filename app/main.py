@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .benchmark import DatasetError, load_dataset, run_benchmark
-from .config import has_key, provider_of, settings
+from .config import MODEL_CHOICES, has_key, provider_of, settings
 from .db import DB, open_db
 from .auth import install_auth
 from .autotrain import MY_TASKS_SET, gate_candidate, pending_corrections
@@ -174,6 +174,8 @@ def create_app(db: Optional[DB] = None, judge=None) -> FastAPI:
         return {
             "defaults": settings.judge.as_dict(),
             "rubric_versions": sorted(RUBRICS),
+            "models": [{"id": m, "label": m, "configured": has_key(provider_of(m))}
+                       for m in dict.fromkeys((*MODEL_CHOICES, settings.judge.model))],
             "provider": provider_of(settings.judge.model),
             "api_key_configured": has_key(provider_of(settings.judge.model)),
             "storage": storage_status(),
@@ -240,16 +242,19 @@ def create_app(db: Optional[DB] = None, judge=None) -> FastAPI:
         result_a: UploadFile = File(...),
         result_b: UploadFile = File(...),
         fresh: bool = Form(False),
+        model: Optional[str] = Form(None),
     ):
         if not prompt.strip():
             raise HTTPException(400, "Prompt is empty")
         prepared, images = await _read_task_images(originals, result_a, result_b)
-        return await run_evaluation(prompt, prepared, images, fresh)
+        return await run_evaluation(prompt, prepared, images, fresh, model)
 
-    async def run_evaluation(prompt: str, prepared, images: dict, fresh: bool) -> dict:
+    async def run_evaluation(prompt: str, prepared, images: dict, fresh: bool,
+                             model: Optional[str] = None) -> dict:
         task = Task(prompt=prompt, originals=prepared[:-2], a=prepared[-2], b=prepared[-1])
-        cfg = current_config()
-        result = await evaluate(task, cfg, get_judge(), db=db(), use_cache=not fresh)
+        cfg = current_config().with_overrides(model=(model or "").strip() or None)
+        result = await evaluate(task, cfg, get_judge(), db=db(), use_cache=not fresh,
+                                deadline_s=settings.eval_deadline_s or None)
         if result["aggregate"]["status"] == "error":
             raise HTTPException(502, result["aggregate"]["explanation"])
         eval_id = db().add_evaluation(prompt, images, cfg.as_dict(), result)
@@ -264,6 +269,7 @@ def create_app(db: Optional[DB] = None, judge=None) -> FastAPI:
         result_a: UploadFile = File(...),
         result_b: UploadFile = File(...),
         fresh: bool = Form(False),
+        model: Optional[str] = Form(None),
     ):
         if not prompt.strip():
             raise HTTPException(400, "Prompt is empty")
@@ -277,7 +283,7 @@ def create_app(db: Optional[DB] = None, judge=None) -> FastAPI:
 
         async def job():
             try:
-                jobs[job_id].update(status="done", result=await run_evaluation(prompt, prepared, images, fresh))
+                jobs[job_id].update(status="done", result=await run_evaluation(prompt, prepared, images, fresh, model))
             except HTTPException as exc:
                 jobs[job_id].update(status="failed", error=str(exc.detail))
             except Exception as exc:

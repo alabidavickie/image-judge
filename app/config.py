@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass, field, replace
 from typing import Optional
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -25,15 +26,24 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 
+MODEL_CHOICES = ("gpt-6-astra", "claude-opus-4-8")
+
+
+def uses_agentrouter() -> bool:
+    return urlparse(os.environ.get("ANTHROPIC_BASE_URL", "")).hostname == "agentrouter.org"
+
+
 def provider_of(model: str) -> str:
-    if model == "codex" or model.startswith("codex:"):
+    if model == "codex" or model.startswith(("codex:", "gpt-")):
         return "codex"
-    if model.startswith("claude-code"):
+    if model.startswith("claude-code") or (uses_agentrouter() and model.startswith("claude-")):
         return "claude-code"
     return "gemini" if model.startswith("gemini") else "anthropic"
 
 
 def has_key(provider: str) -> bool:
+    if provider in ("codex", "claude-code") and uses_agentrouter() and not os.environ.get("ANTHROPIC_API_KEY"):
+        return False
     if provider == "codex":  # uses the local Codex CLI login instead of an API key
         import shutil
         return bool(os.environ.get("IMAGE_JUDGE_CODEX_BIN") or shutil.which("codex"))
@@ -93,6 +103,12 @@ class JudgeConfig:
         }
 
 
+def default_eval_deadline() -> float:
+    """IMAGE_JUDGE_EVAL_DEADLINE seconds; if unset, 110 seconds when login is on (hosted), else no limit."""
+    hosted = os.environ.get("IMAGE_JUDGE_AUTH", "").lower() in ("1", "true", "yes", "on")
+    return float(os.environ.get("IMAGE_JUDGE_EVAL_DEADLINE", "110" if hosted else "0"))
+
+
 @dataclass
 class Settings:
     db_path: Path = Path(os.environ.get("IMAGE_JUDGE_DB", str(ROOT / "data" / "image_judge.sqlite3")))
@@ -133,12 +149,19 @@ class Settings:
     # Max simultaneous API calls across the whole process (rate-limit friendliness).
     max_concurrency: int = int(os.environ.get("IMAGE_JUDGE_MAX_CONCURRENCY", "4"))
     # SDK-level retries for 429 / 5xx / connection errors (exponential backoff).
-    api_max_retries: int = int(os.environ.get("IMAGE_JUDGE_API_RETRIES", "5"))
+    api_max_retries: int = int(os.environ.get("IMAGE_JUDGE_API_RETRIES", "2"))
     api_timeout_s: float = float(os.environ.get("IMAGE_JUDGE_API_TIMEOUT", "600"))
+    # Longest an interactive evaluation may take, in seconds, from start to answer. When it runs out, the
+    # checks that finished are used (and the answer says so). 0 = no limit. Hosted (login on) defaults to 110 seconds.
+    eval_deadline_s: float = field(default_factory=lambda: default_eval_deadline())
+    # Longest side (pixels) and total pixels an image is shrunk to before it is sent. Smaller images are
+    # faster and less likely to hit rate limits, but fine detail (small text, fingers) is harder to see.
+    image_max_edge: int = int(os.environ.get("IMAGE_JUDGE_IMAGE_EDGE", "1568"))
+    image_max_pixels: int = int(os.environ.get("IMAGE_JUDGE_IMAGE_PIXELS", "1150000"))
     # When the API says "too many requests" even after the SDK's quick retries, wait this many seconds
     # (comma-separated, one per extra try) before trying again. The API's own Retry-After hint wins.
     rate_limit_waits_s: tuple = tuple(
-        float(w) for w in os.environ.get("IMAGE_JUDGE_RATE_WAITS", "10,20,40,60,60").split(",") if w.strip())
+        float(w) for w in os.environ.get("IMAGE_JUDGE_RATE_WAITS", "5,10,15,20,30").split(",") if w.strip())
     max_upload_bytes: int = 25 * 1024 * 1024
     judge: JudgeConfig = field(default_factory=JudgeConfig)
 

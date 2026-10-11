@@ -55,7 +55,8 @@ def judge(runner):
     return ClaudeCodeJudge(binary="claude.exe", runner=runner)
 
 
-def test_routing_and_model_alias():
+def test_routing_and_model_alias(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
     assert provider_of("claude-code") == provider_of("claude-code:opus") == "claude-code"
     assert provider_of("claude-opus-5-5") == "anthropic"
     assert cli_model("claude-code:fable") == "fable"
@@ -144,3 +145,8 @@ def test_gateway_timeout_reports_provider_unavailability(monkeypatch):
     run = FakeRun(raise_exc=subprocess.TimeoutExpired("claude", 105, output=output.encode()))
     with pytest.raises(JudgeError, match="agentrouter.org kept returning HTTP 503.*provider is unavailable"):
         asyncio.run(judge(run).judge_once(task(), CFG, False, []))
+
+def test_exact_opus_model_uses_supported_gateway_client(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://agentrouter.org")
+    assert provider_of("claude-opus-4-8") == "claude-code"
+    assert cli_model("claude-opus-4-8") == "claude-opus-4-8"

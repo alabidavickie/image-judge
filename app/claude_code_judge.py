@@ -30,7 +30,7 @@ PREFIX = "claude-code"
 def cli_model(model: str) -> Optional[str]:
     """'claude-code:fable' -> 'fable'; 'claude-code' -> None (CLI default)."""
     _, _, alias = model.partition(":")
-    return alias or None
+    return alias or (model if not model.startswith(PREFIX) else None)
 
 
 def find_claude_binary() -> Optional[str]:

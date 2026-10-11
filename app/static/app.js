@@ -144,6 +144,7 @@ $("#judge-form").addEventListener("submit", async e => {
   fd.append("result_a", state.a.file, state.a.name);
   fd.append("result_b", state.b.file, state.b.name);
   fd.append("fresh", $("#fresh").checked ? "true" : "false");
+  fd.append("model", $("#judge-model").value);
 
   const btn = $("#evaluate-btn");
   btn.disabled = true; btn.textContent = "Evaluating…";
@@ -526,7 +527,13 @@ $("#save-btn").addEventListener("click", async () => {
   }
 });
 
-fetchJSON("/api/config").then(c => { $("#key-warning").hidden = c.api_key_configured; }).catch(() => {});
+fetchJSON("/api/config").then(c => {
+  $("#key-warning").hidden = c.api_key_configured;
+  const picker = $("#judge-model");
+  const choices = c.models || [{id: c.defaults.model, label: c.defaults.model}];
+  picker.replaceChildren(...choices.map(m => new Option(m.label, m.id)));
+  picker.value = c.defaults.model;
+}).catch(() => {});
 refreshKnowledgeLine();
 loadSets();
 render();

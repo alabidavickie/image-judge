@@ -123,7 +123,8 @@ def test_end_to_end_pipeline_with_fake_gemini():
     assert len(client.requests) == 2
 
 
-def test_routing_by_model_name():
+def test_routing_by_model_name(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
     assert provider_of("gemini-3.8-flash") == "gemini"
     assert provider_of("claude-opus-5-5") == "anthropic"
     router = RoutingJudge()

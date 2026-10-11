@@ -103,6 +103,8 @@
     <section class="card">
       <p class="hint">Click <strong>Evaluate</strong>. Then tell it whether it was right: when it's wrong
         (or unsure), write why the other result is correct and it learns from that straight away.</p>
+      <label class="field" for="judge-model">Evaluation model</label>
+      <select id="judge-model" name="model"><option value="">Loading models…</option></select>
       <p class="hint" id="knowledge-line"></p>
       <div class="actions">
         <button type="submit" class="primary" id="evaluate-btn" disabled>Evaluate</button>
@@ -124,6 +126,6 @@
   </section>
 </main>
 <script src="/static/common.js"></script>
-<script src="/static/app.js?v=guide-v5-6"></script>
+<script src="/static/app.js?v=models-2"></script>
 </body>
 </html>

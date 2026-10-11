@@ -21,6 +21,7 @@ async function loadAll() {
     fetchJSON("/api/config"), fetchJSON("/api/sets"), fetchJSON("/api/knowledge"),
   ]);
   st.config = cfg; st.sets = sets.items; st.knowledge = know.items;
+  $("#run-model-options").replaceChildren(...(cfg.models || []).map(m => new Option(m.label, m.id)));
   $("#key-warning").hidden = cfg.api_key_configured;
   renderSets();
   renderKnowledge();

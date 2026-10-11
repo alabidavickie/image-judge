@@ -169,3 +169,23 @@ def test_background_evaluation_reports_a_failure_in_words(db, tmp_path, monkeypa
 def test_background_evaluation_checks_its_input_and_unknown_jobs(client):
     assert client.post("/api/evaluate/start", data={"prompt": "  "}, files=files()).status_code == 400
     assert client.get("/api/evaluate/jobs/doesnotexist").status_code == 404
+
+
+@pytest.mark.parametrize("selected_model", ["gpt-6-astra", "claude-opus-4-8"])
+def test_model_picker_passes_selected_model_and_active_lessons(db, tmp_path, monkeypatch, selected_model):
+    monkeypatch.setattr(main.settings, "upload_dir", tmp_path / "uploads", raising=False)
+    kid = db.add_knowledge("Check every criterion.", ["Read exact text."], "accepted training", activate=True)
+    seen = []
+    class CapturingJudge(FakeJudge):
+        async def judge_once(self, task, config, swapped, notes):
+            seen.append(config)
+            return await super().judge_once(task, config, swapped, notes)
+    with TestClient(main.create_app(db=db, judge=CapturingJudge())) as c:
+        r = c.post("/api/evaluate", data={"prompt": "Make it green", "model": selected_model}, files=files())
+        assert r.status_code == 200, r.text
+        saved = c.get(f"/api/evaluations/{r.json()['id']}").json()
+        assert saved["config"]["model"] == selected_model
+        assert saved["config"]["knowledge_id"] == kid
+        assert all(cfg.model == selected_model and cfg.lessons == ("Read exact text.",) for cfg in seen)
+        config = c.get("/api/config").json()
+        assert {"gpt-6-astra", "claude-opus-4-8"}.issubset({m["id"] for m in config["models"]})

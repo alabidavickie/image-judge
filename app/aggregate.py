@@ -72,7 +72,7 @@ class Aggregate:
         }
 
 
-def aggregate(runs: list[RunResult], planned: Optional[int] = None) -> Aggregate:
+def aggregate(runs: list[RunResult], planned: Optional[int] = None, allow_partial: bool = False) -> Aggregate:
     planned = planned if planned is not None else len(runs)
     ok = [r for r in runs if r.ok]
     votes = {"A": sum(r.verdict == "A" for r in ok), "B": sum(r.verdict == "B" for r in ok)}
@@ -91,7 +91,7 @@ def aggregate(runs: list[RunResult], planned: Optional[int] = None) -> Aggregate
     if unanimous and failed == 0 and not low and len(ok) >= 2:
         status: Status = "confident"
         explanation = f"All {planned} runs chose {top} with medium or high confidence, in both image orders."
-    elif top_count * 2 > planned and votes["A"] != votes["B"]:
+    elif votes["A"] != votes["B"] and (top_count * 2 > planned or (allow_partial and unanimous)):
         status = "review"
         why = []
         if not unanimous:
