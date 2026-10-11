@@ -127,3 +127,20 @@ def test_end_to_end_pipeline():
     result = asyncio.run(evaluate(task(), CFG, judge(run)))
     assert result["aggregate"]["status"] == "confident" and result["aggregate"]["verdict"] == "B"
     assert len(run.calls) == 2
+
+
+def test_gateway_uses_service_key_without_local_settings(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://agentrouter.org")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    cmd = build_command("claude.exe", CFG, "s", {})
+    assert "--bare" in cmd
+    assert cmd[cmd.index("--setting-sources") + 1] == ""
+    assert "test-key" not in " ".join(cmd)
+
+
+def test_gateway_timeout_reports_provider_unavailability(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://agentrouter.org")
+    output = stream({"type": "system", "subtype": "api_retry", "error_status": 503})
+    run = FakeRun(raise_exc=subprocess.TimeoutExpired("claude", 105, output=output.encode()))
+    with pytest.raises(JudgeError, match="agentrouter.org kept returning HTTP 503.*provider is unavailable"):
+        asyncio.run(judge(run).judge_once(task(), CFG, False, []))

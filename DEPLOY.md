@@ -174,5 +174,27 @@ Then send the labellers: the address, their email and password, and one line: **
 | Pages load but images are broken | R2 variables are wrong, or the bucket name differs. Check the Railway logs for "Cloudflare R2: ... failed". |
 | "The AI provider says this API key has no credit or quota left" | The mwapi balance is used up. Add credit with the provider (or put a different key in `ANTHROPIC_API_KEY` in Railway). Waiting and settings changes do not help. |
 | "Anthropic API key missing or invalid" | Wrong key, or `ANTHROPIC_BASE_URL` not set to `https://api.mwapi.dev`. |
-| Evaluate works locally but errors online | The online app can only use API models; `claude-code:` and `codex:` models need your own PC. |
+| Evaluate works locally but errors online | For Agent Router, use the included `claude-code:` client and API key (see below). Subscription-based `claude-code:` and `codex:` setups need your own PC. |
 | Everything is slow right after a quiet period | The first request wakes the server and the database; wait a minute. |
+
+
+## Agent Router instead of mwapi
+
+Agent Router's official guide is https://github.com/agentrouter-org/docs/blob/main/en/start.md.
+It uses `https://agentrouter.org` without `/v1` in the Anthropic base URL.
+The service currently rejects this app's generic SDK client with `unauthorized client detected`.
+Use the actual supported Claude Code client instead; the Docker image includes version 2.1.217.
+The judge still sends all source/candidate images, rubric and active lessons, with file/shell/web tools disabled.
+
+In Railway **service > Variables**, change `ANTHROPIC_API_KEY` to your Agent Router key,
+`ANTHROPIC_BASE_URL` to `https://agentrouter.org`, and `IMAGE_JUDGE_MODEL` to
+`claude-code:claude-sonnet-4-5-20250929` (a model listed in their guide).
+Remove any old `ANTHROPIC_AUTH_TOKEN` or set it to the same new key.
+Use the other settings in `railway.agentrouter.env.example` to keep checks within a 105-second request limit.
+Save the variables and redeploy. Never put the real key in GitHub or the browser.
+For local use, change the same settings in the private `.env` file and restart the app.
+
+A configured key is not proof of working provider service. During integration testing, the supported
+Claude Code client repeatedly received **HTTP 503** from Agent Router. Until its model route is available,
+the judge cannot produce a result. Its timeout message includes that provider status.
+If this persists, contact Agent Router support to enable the model/key for this use or use another provider.

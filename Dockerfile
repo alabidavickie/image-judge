@@ -1,7 +1,14 @@
+# Agent Router requires its supported Claude Code client for judge requests.
+FROM node:22-bookworm-slim AS claude-runtime
+RUN npm install -g @anthropic-ai/claude-code@2.1.217 && claude --version
+
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /srv
+
+COPY --from=claude-runtime /usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe /usr/local/bin/claude
+RUN claude --version
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt

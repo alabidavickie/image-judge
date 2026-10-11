@@ -19,6 +19,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from .config import JudgeConfig, settings
 from .judge import JsonJudge, JudgeError, anthropic_blocks
@@ -58,6 +59,9 @@ def build_command(binary: str, config: JudgeConfig, system: str, schema: dict) -
         "--no-session-persistence",           # don't fill the session history with judge calls
         "--safe-mode",                        # ignore CLAUDE.md, hooks, plugins, MCP servers
     ]
+    if os.environ.get("ANTHROPIC_BASE_URL") and os.environ.get("ANTHROPIC_API_KEY"):
+        # Gateway calls must use this service's key, without local subscription/settings overrides.
+        cmd += ["--bare", "--setting-sources", ""]
     if model := cli_model(config.model):
         cmd += ["--model", model]
     return cmd
@@ -100,7 +104,22 @@ class ClaudeCodeJudge(JsonJudge):
                 timeout=settings.api_timeout_s, cwd=tempfile.gettempdir(),
             )
         except subprocess.TimeoutExpired as exc:
-            raise JudgeError(f"Claude Code did not answer within {settings.api_timeout_s:.0f}s.") from exc
+            detail = ""
+            output = exc.stdout or ""
+            if isinstance(output, bytes):
+                output = output.decode("utf-8", "replace")
+            for line in output.splitlines():
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if event.get("subtype") == "api_retry" and event.get("error_status"):
+                    host = urlparse(os.environ.get("ANTHROPIC_BASE_URL", "")).hostname or "the AI provider"
+                    status = event["error_status"]
+                    detail = f" {host} kept returning HTTP {status}."
+                    if isinstance(status, int) and status >= 500:
+                        detail += " The provider is unavailable; try again later or contact its support."
+            raise JudgeError(f"Claude Code did not answer within {settings.api_timeout_s:.0f}s.{detail}") from exc
         except OSError as exc:
             raise JudgeError(f"Could not start Claude Code ({binary}): {exc}", fatal=True) from exc
 
