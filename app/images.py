@@ -11,6 +11,8 @@ from typing import Optional
 
 from PIL import Image, ImageChops, ImageFilter, ImageOps, UnidentifiedImageError
 
+from .config import settings
+
 # Claude vision gains nothing above ~1568px on the long edge / ~1.15 megapixels;
 # larger images are downscaled server-side anyway, so we do it first to save
 # upload size and latency.
@@ -41,7 +43,7 @@ class PreparedImage:
 
 
 def _target_size(w: int, h: int) -> tuple[int, int]:
-    scale = min(1.0, MAX_LONG_EDGE / max(w, h), (MAX_PIXELS / (w * h)) ** 0.5)
+    scale = min(1.0, settings.image_max_edge / max(w, h), (settings.image_max_pixels / (w * h)) ** 0.5)
     return max(1, round(w * scale)), max(1, round(h * scale))
 
 

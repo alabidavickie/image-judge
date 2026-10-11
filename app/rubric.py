@@ -328,13 +328,28 @@ JUDGMENT_SCHEMA_V3 = {
     + [k for k in JUDGMENT_SCHEMA["required"] if k != "originals_summary"],
 }
 
-RUBRICS: dict[str, str] = {"v1": _V1, "v2": _V2, "v3": _V3, "v4": _V4, "v5": _V5}
+# v3c: v3's criteria unchanged, but the answer is written in about half the words. Most of the time of a
+# judgment is the model writing its answer, so this makes it noticeably faster (and cheaper) while the checks
+# it makes are the same. The verdict and confidence come last, after the analysis, as before.
+_V3C = _V3 + """
+ANSWER BUDGET (this must be quick - think fully, but write briefly)
+Do every check above; only the WRITING is short. Use plain words, no filler, never repeat the prompt.
+- originals_summary: at most 30 words - only what matters for judging.
+- first_impression: one short sentence for A and one for B.
+- visible_differences: at most 4 short items.
+- requirements: at most 6. Merge related points into one requirement, and keep the ones that decide
+  the choice (critical and major first). Each evidence is at most 12 words and names what you see.
+- decisive_difference: at most 25 words, naming both results.
+- reasoning: at most 2 sentences.
+"""
+
+RUBRICS: dict[str, str] = {"v1": _V1, "v2": _V2, "v3": _V3, "v3c": _V3C, "v4": _V4, "v5": _V5}
 # Rubric versions that are given difference heat maps between each result and the first original.
-USES_DIFFERENCE_MAPS = {"v3", "v4", "v5"}
+USES_DIFFERENCE_MAPS = {"v3", "v3c", "v4", "v5"}
 
 
 def schema_for(version: str) -> dict:
-    return JUDGMENT_SCHEMA_V3 if version in ("v3", "v4", "v5") else JUDGMENT_SCHEMA
+    return JUDGMENT_SCHEMA_V3 if version in ("v3", "v3c", "v4", "v5") else JUDGMENT_SCHEMA
 
 
 def system_prompt(version: str, guidelines: str = "", lessons: tuple[str, ...] | list[str] = ()) -> str:

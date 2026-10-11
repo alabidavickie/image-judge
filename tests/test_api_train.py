@@ -111,7 +111,12 @@ def test_failed_run_records_error(db, tmp_path, monkeypatch):
     monkeypatch.setattr(bm.settings, "results_dir", tmp_path / "results", raising=False)
     with TestClient(main.create_app(db=db, judge=FakeJudge(error=JudgeError("usage limit reached", fatal=True)))) as c:
         sid = add_task(c, "B", set_name="T")["set"]["id"]
-        run = wait_for(c, c.post("/api/runs", json={"mode": "test", "set_id": sid}).json()["id"])
+        run_id = c.post("/api/runs", json={"mode": "test", "set_id": sid}).json()["id"]
+        run = wait_for(c, run_id)
+        end = time.time() + 10  # the status flips to "failed" a moment before the reason is written
+        while not run.get("metrics") and time.time() < end:
+            time.sleep(0.05)
+            run = c.get(f"/api/benchmarks/{run_id}").json()
     assert run["status"] == "failed" and "usage limit" in run["metrics"]["error"]
 
 
