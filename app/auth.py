@@ -61,13 +61,27 @@ class SupabaseAuth:
         return self._client
 
     def _headers(self, token: Optional[str] = None) -> dict:
-        return {"apikey": self.anon_key, "Authorization": f"Bearer {token or self.anon_key}"}
+        headers = {"apikey": self.anon_key}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
 
     async def sign_in(self, email: str, password: str) -> Optional[dict]:
         r = await self._http().post(f"{self.url}/auth/v1/token?grant_type=password", headers=self._headers(),
                                     json={"email": email, "password": password})
         if r.status_code in (400, 401, 422):
-            return None  # wrong email or password
+            try:
+                error = r.json()
+            except ValueError:
+                error = {}
+            code = error.get("error_code") or error.get("code") or error.get("error")
+            if code in ("invalid_credentials", "invalid_grant"):
+                return None
+            if "invalid api key" in str(error).lower() or code in ("invalid_api_key", "INVALID_API_KEY"):
+                raise HTTPException(502, "Supabase login API key is invalid. Check SUPABASE_ANON_KEY in Railway.")
+            if r.status_code == 400 and code is None:
+                return None
+            raise HTTPException(502, "Supabase refused the login request. Check the Railway Supabase settings.")
         if r.status_code != 200:
             raise HTTPException(502, "The login service is not available. Try again in a minute.")
         return r.json()

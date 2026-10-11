@@ -69,6 +69,33 @@ def test_public_paths_stay_open(hosted):
     assert hosted.get("/static/login.js").status_code == 200
 
 
+def test_publishable_key_is_not_used_as_a_bearer_token():
+    import asyncio
+    from app.auth import SupabaseAuth
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["apikey"] == "sb_publishable_test"
+        assert "authorization" not in request.headers
+        return httpx.Response(400, json={"error_code": "invalid_credentials"})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    auth = SupabaseAuth("https://x.supabase.co", "sb_publishable_test", client=client)
+    assert asyncio.run(auth.sign_in("person@example.com", "wrong")) is None
+
+
+def test_invalid_supabase_api_key_is_reported_as_configuration_error():
+    import asyncio
+    from app.auth import SupabaseAuth
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(401, json={"message": "Invalid API key"})))
+    auth = SupabaseAuth("https://x.supabase.co", "bad-key", client=client)
+    with pytest.raises(Exception) as error:
+        asyncio.run(auth.sign_in("person@example.com", "any"))
+    assert error.value.status_code == 502
+    assert "SUPABASE_ANON_KEY" in error.value.detail
+
+
 def test_wrong_password_is_refused(hosted):
     r = sign_in(hosted, password="wrong")
     assert r.status_code == 401 and "Wrong email or password" in r.json()["detail"]
